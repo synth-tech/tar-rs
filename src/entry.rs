@@ -64,6 +64,16 @@ impl<'a, R: Read> Entry<'a, R> {
     pub fn unpack<P: AsRef<Path>>(&mut self, dst: P) -> io::Result<()> {
         self.fields._unpack(dst.as_ref())
     }
+
+    /// Returns the starting position, in bytes, of the file of this entry in
+    /// the archive.
+    ///
+    /// If the file of this entry is continuous (e.g. not a sparse file), and
+    /// if the underlying reader implements `Seek`, then the slice from
+    /// `file_pos` to `file_pos + entry_size` contains the raw file bytes.
+    pub fn raw_file_position(&self) -> u64 {
+        self.fields.pos + 512
+    }
 }
 
 impl<'a, R: Read> Read for Entry<'a, R> {

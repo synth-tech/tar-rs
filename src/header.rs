@@ -245,9 +245,20 @@ impl Header {
     ///
     /// May return an error if the field is corrupted.
     pub fn size(&self) -> io::Result<u64> {
-        octal_from(&self.as_old().size)
+        //octal_from(&self.as_old().size)
+        num_field_wrapper_from(&self.as_old().size).map_err(|err| {
+            io::Error::new(
+                err.kind(),
+                format!("{} when getting size for {}", err, self.path_lossy()),
+            )
+        })
     }
 
+    /// Gets the path in a "lossy" way, used for error reporting ONLY.
+    fn path_lossy(&self) -> String {
+        String::from_utf8_lossy(&self.path_bytes()).to_string()
+    }
+    
     /// Encodes the `size` argument into the size field of this header.
     pub fn set_size(&mut self, size: u64) {
         octal_into(&mut self.as_old_mut().size, size)
@@ -795,13 +806,19 @@ fn deslash(bytes: &[u8]) -> Cow<[u8]> {
 }
 
 fn octal_from(slice: &[u8]) -> io::Result<u64> {
-    let num = match str::from_utf8(truncate(slice)) {
+    let trun = truncate(slice);
+    let num = match str::from_utf8(trun) {
         Ok(n) => n,
-        Err(_) => return Err(other("numeric field did not have utf-8 text")),
+        Err(_) => {
+            return Err(other(&format!(
+                "numeric field did not have utf-8 text: {}",
+                String::from_utf8_lossy(trun)
+            )));
+        }
     };
     match u64::from_str_radix(num.trim(), 8) {
         Ok(n) => Ok(n),
-        Err(_) => Err(other("numeric field was not a number"))
+        Err(_) => Err(other(&format!("numeric field was not a number: {}", num))),
     }
 }
 
@@ -893,4 +910,31 @@ pub fn bytes2path(bytes: Cow<[u8]>) -> io::Result<Cow<Path>> {
             PathBuf::from(OsString::from_vec(bytes))
         })
     })
+}
+
+fn numeric_extended_from(src: &[u8]) -> u64 {
+    let mut dst: u64 = 0;
+    let mut b_to_skip = 1;
+    if src.len() == 8 {
+        // read first byte without extension flag bit
+        dst = (src[0] ^ 0x80) as u64;
+    } else {
+        // only read last 8 bytes
+        b_to_skip = src.len() - 8;
+    }
+    for byte in src.iter().skip(b_to_skip) {
+        dst <<= 8;
+        dst |= *byte as u64;
+    }
+    dst
+}
+
+// Wrapper to figure out if we should read the header field in binary (numeric
+// extension) or octal (standard encoding).
+fn num_field_wrapper_from(src: &[u8]) -> io::Result<u64> {
+    if src[0] & 0x80 != 0 {
+        Ok(numeric_extended_from(src))
+    } else {
+        octal_from(src)
+    }
 }

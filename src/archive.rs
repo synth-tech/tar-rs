@@ -74,6 +74,11 @@ impl<R: Read> Archive<R> {
         }
     }
 
+    /// Returns the current file position
+    pub fn raw_file_position(&self) -> u64 {
+        self.inner.pos.get()
+    }
+
     /// Unwrap this archive, returning the underlying object.
     pub fn into_inner(self) -> R {
         self.inner.obj.into_inner().1
